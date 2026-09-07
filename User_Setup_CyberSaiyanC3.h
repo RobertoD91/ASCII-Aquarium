@@ -17,6 +17,23 @@
 #define USER_SETUP_INFO "CyberSaiyan ESP32-C3 badge ST7789 240x320"
 #define USER_SETUP_ID 71
 
+// --- arduino-esp32 3.x (ESP-IDF 5) compatibility fix for ESP32-C3 ------------
+// TFT_eSPI's C3 back-end derives its raw SPI register pointers from
+// REG_SPI_BASE(SPI_PORT) with SPI_PORT = SPI2_HOST (== 1). IDF 5's soc.h for
+// the C3 defines REG_SPI_BASE(i) as ((i)==2 ? DR_REG_SPI2_BASE : 0), so that
+// evaluates to 0 and the very first tft.init() write faults at address 0x10
+// (SPI_USER_REG) -- "Guru Meditation Error: Store access fault, MTVAL 0x10".
+// TFT_eSPI carries its own `#ifndef REG_SPI_BASE -> DR_REG_SPI2_BASE` fallback
+// but it never fires because IDF already defines the macro. This file is
+// included by TFT_eSPI.h after <Arduino.h>/soc.h and before the processor
+// header, so forcing the fallback here fixes it without patching the library.
+// The C3 has a single general-purpose SPI (GPSPI2), so this is always right.
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+  #include <soc/soc.h>
+  #undef REG_SPI_BASE
+  #define REG_SPI_BASE(i) DR_REG_SPI2_BASE
+#endif
+
 // Display driver
 #define ST7789_DRIVER
 #define TFT_RGB_ORDER TFT_RGB  // If colours look swapped on real hardware, try TFT_BGR instead.

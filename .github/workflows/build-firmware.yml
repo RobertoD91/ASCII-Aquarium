@@ -69,8 +69,10 @@ jobs:
 
       - name: Stage sketch (arduino-cli requires folder name == .ino name)
         run: |
-          mkdir -p build-sketch
-          cp "$SKETCH" "build-sketch/$(basename "$SKETCH")"
+          SKETCH_NAME="$(basename "$SKETCH" .ino)"
+          mkdir -p "build-sketch/$SKETCH_NAME"
+          cp "$SKETCH" "build-sketch/$SKETCH_NAME/"
+          echo "SKETCH_DIR=build-sketch/$SKETCH_NAME" >> "$GITHUB_ENV"
 
       - name: Compile
         run: |
@@ -79,4 +81,4 @@ jobs:
             --build-property "compiler.cpp.extra_flags=${{ matrix.extra_define }}" \
             --build-property "compiler.c.extra_flags=${{ matrix.extra_define }}" \
             --warnings default \
-            build-sketch
+            "$SKETCH_DIR"

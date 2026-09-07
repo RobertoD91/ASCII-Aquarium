@@ -127,6 +127,13 @@ Key patterns to know before making changes:
   maps the old names onto `FSPI` near the top of the file when the core doesn't
   define them, since `SPIClass touchSPI(HSPI)`/`sdSPI(VSPI)` are declared
   unconditionally. Keep this in mind before adding another `HSPI`/`VSPI` use.
+- **TFT_eSPI 2.5.43 + arduino-esp32 3.x on ESP32-C3 crashes in `tft.init()`**
+  ("Store access fault", `MTVAL 0x10`) unless `REG_SPI_BASE` is overridden: the
+  library builds its raw SPI register pointers from `REG_SPI_BASE(SPI2_HOST)`,
+  and IDF 5's C3 `soc.h` returns 0 for index 1. `User_Setup_CyberSaiyanC3.h`
+  carries the `#undef/#define REG_SPI_BASE(i) DR_REG_SPI2_BASE` fix — keep it
+  when editing that file, and expect the same class of bug if an ESP32-S3
+  profile is ever built against core 3.x.
 - **Board-specific `arduino-cli` defines** must go through `compiler.cpp.extra_flags`
   / `compiler.c.extra_flags`, never `build.extra_flags` — the esp32 core's
   `platform.txt` stuffs its own required defines (notably `-DESP32=ESP32`) into
