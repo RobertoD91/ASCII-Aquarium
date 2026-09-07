@@ -1600,7 +1600,13 @@ void markSettingsDirty() {
 }
 
 int displayRotation() {
+#if defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+  // The badge's ST7789 is mounted the other way up relative to the CYD:
+  // rotation 3 is upright on this hardware, 1 shows the tank upside-down.
+  return displayFlip180 ? 1 : 3;
+#else
   return displayFlip180 ? 3 : 1;
+#endif
 }
 
 void applyTouchOrientation() {
