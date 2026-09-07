@@ -24,6 +24,9 @@ env:
   TFT_ESPI_VERSION: 2.5.43
   XPT2046_VERSION: 1.4.0
   SKETCH: ASCII_Aquarium_CYD/ASCII_Aquarium_CYD_2.39.ino
+  # Pin arduino-cli's sketchbook/libraries dir so the TFT_eSPI path below is
+  # deterministic (arduino-cli honours this env var natively).
+  ARDUINO_DIRECTORIES_USER: ${{ github.workspace }}/.arduino-user
 
 jobs:
   build:
@@ -38,7 +41,9 @@ jobs:
             user_setup: User_Setup.h
             extra_define: ""
           - name: CyberSaiyan ESP32-C3 (WHY2025/EMF2026 + RHC22 badge)
-            fqbn: "esp32:esp32:esp32c3:PartitionScheme=min_spiffs"
+            # FlashMode=dio matches the badges' stock firmware (sdkconfig
+            # CONFIG_ESPTOOLPY_FLASHMODE_DIO); the Arduino default is QIO.
+            fqbn: "esp32:esp32:esp32c3:FlashMode=dio,PartitionScheme=min_spiffs"
             user_setup: User_Setup_CyberSaiyanC3.h
             extra_define: "-DAQUARIUM_BOARD_CYBERSAIYAN_C3"
     steps:
@@ -60,8 +65,7 @@ jobs:
 
       - name: Configure TFT_eSPI for this board
         run: |
-          TFT_ESPI_DIR="$(arduino-cli config dump --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["config"]["directories"]["user"])')/libraries/TFT_eSPI"
-          cp "${{ matrix.user_setup }}" "$TFT_ESPI_DIR/User_Setup.h"
+          cp "${{ matrix.user_setup }}" "$ARDUINO_DIRECTORIES_USER/libraries/TFT_eSPI/User_Setup.h"
 
       - name: Stage sketch (arduino-cli requires folder name == .ino name)
         run: |

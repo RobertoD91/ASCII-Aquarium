@@ -54,7 +54,8 @@ happens in the Arduino IDE:
    - CyberSaiyan ESP32-C3 badges (WHY2025/EMF2026, RHC22): board "ESP32C3 Dev
      Module", partition scheme **"Minimal SPIFFS (1.9MB APP with OTA/128KB
      SPIFFS)"** (the default 1.2MB-APP scheme leaves too little headroom — see
-     below), define `AQUARIUM_BOARD_CYBERSAIYAN_C3`, and copy
+     below), flash mode **DIO** (the badges' stock firmware is built DIO; the
+     Arduino default is QIO), define `AQUARIUM_BOARD_CYBERSAIYAN_C3`, and copy
      `User_Setup_CyberSaiyanC3.h` (not `User_Setup.h`) into `TFT_eSPI`. This
      profile has no electrically-wired touch controller (the panel's TSC2007 is
      I2C-only and unused) and no SD card slot, so touch and BMP capture are
