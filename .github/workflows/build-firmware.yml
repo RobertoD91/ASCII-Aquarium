@@ -1,0 +1,84 @@
+name: Build firmware
+
+# Compiles the sketch for every supported board profile with arduino-cli, so a
+# broken build is caught in CI instead of on real hardware. This does not
+# produce the release .bin artifacts published under docs/firmware -- those
+# are still built with Arduino IDE's "Export Compiled Binary" per
+# CLAUDE.md's build/flash workflow.
+
+on:
+  push:
+    paths:
+      - "ASCII_Aquarium_CYD/**.ino"
+      - "User_Setup*.h"
+      - ".github/workflows/build-firmware.yml"
+  pull_request:
+    paths:
+      - "ASCII_Aquarium_CYD/**.ino"
+      - "User_Setup*.h"
+      - ".github/workflows/build-firmware.yml"
+  workflow_dispatch:
+
+env:
+  ESP32_CORE_VERSION: 3.3.11
+  TFT_ESPI_VERSION: 2.5.43
+  XPT2046_VERSION: 1.4.0
+  SKETCH: ASCII_Aquarium_CYD/ASCII_Aquarium_CYD_2.39.ino
+  # Pin arduino-cli's sketchbook/libraries dir so the TFT_eSPI path below is
+  # deterministic (arduino-cli honours this env var natively).
+  ARDUINO_DIRECTORIES_USER: ${{ github.workspace }}/.arduino-user
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: CYD (ILI9341, base board)
+            fqbn: esp32:esp32:esp32
+            user_setup: User_Setup.h
+            extra_define: ""
+          - name: CyberSaiyan ESP32-C3 (WHY2025/EMF2026 + RHC22 badge)
+            # FlashMode=dio matches the badges' stock firmware (sdkconfig
+            # CONFIG_ESPTOOLPY_FLASHMODE_DIO); the Arduino default is QIO.
+            fqbn: "esp32:esp32:esp32c3:FlashMode=dio,PartitionScheme=min_spiffs"
+            user_setup: User_Setup_CyberSaiyanC3.h
+            extra_define: "-DAQUARIUM_BOARD_CYBERSAIYAN_C3"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 board package
+        run: |
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32@${{ env.ESP32_CORE_VERSION }} --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Install libraries
+        run: |
+          arduino-cli lib install "TFT_eSPI@${{ env.TFT_ESPI_VERSION }}"
+          arduino-cli lib install "XPT2046_Touchscreen@${{ env.XPT2046_VERSION }}"
+
+      - name: Configure TFT_eSPI for this board
+        run: |
+          cp "${{ matrix.user_setup }}" "$ARDUINO_DIRECTORIES_USER/libraries/TFT_eSPI/User_Setup.h"
+
+      - name: Stage sketch (arduino-cli requires folder name == .ino name)
+        run: |
+          SKETCH_NAME="$(basename "$SKETCH" .ino)"
+          mkdir -p "build-sketch/$SKETCH_NAME"
+          cp "$SKETCH" "build-sketch/$SKETCH_NAME/"
+          echo "SKETCH_DIR=build-sketch/$SKETCH_NAME" >> "$GITHUB_ENV"
+
+      - name: Compile
+        run: |
+          arduino-cli compile \
+            --fqbn "${{ matrix.fqbn }}" \
+            --build-property "compiler.cpp.extra_flags=${{ matrix.extra_define }}" \
+            --build-property "compiler.c.extra_flags=${{ matrix.extra_define }}" \
+            --warnings default \
+            "$SKETCH_DIR"
