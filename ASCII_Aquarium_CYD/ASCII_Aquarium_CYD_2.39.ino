@@ -9,8 +9,19 @@
 #include <SD.h>
 #include <TFT_eSPI.h>
 #include <WiFi.h>
+#include <Wire.h>
 #include <XPT2046_Touchscreen.h>
 #include <time.h>
+
+// RISC-V ESP32 targets (C3/S2/S3) only expose one general-purpose SPI host
+// (FSPI) to Arduino, not the classic ESP32's separate HSPI/VSPI -- map the
+// old names onto it so the touch/SD SPIClass declarations below still build.
+#if !defined(HSPI)
+#define HSPI FSPI
+#endif
+#if !defined(VSPI)
+#define VSPI FSPI
+#endif
 
 /*
   Desktop ASCII Aquarium for ESP32-2432S028R (CYD)
@@ -47,17 +58,32 @@ static constexpr const char* kSketchVersionLabel = "v2.39";
 
 #if defined(AQUARIUM_BOARD_ST7796U35)
 static constexpr const char* kBoardProfileName = "ST7796U 3.5";
+#elif defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+static constexpr const char* kBoardProfileName = "CyberSaiyan ESP32-C3";
 #else
 static constexpr const char* kBoardProfileName = "CYD 2.8";
 #endif
 
 // ------------------------------ Board Touch Pins -----------------------------
+// CyberSaiyan badges (WHY2025/EMF2026, RHC22) have no touch controller wired to
+// the MCU -- the ST7789 panel's TSC2007 is I2C-only and unused by the stock
+// badge firmware -- so all touch pins are unused stubs on that profile; see
+// initTouchHardware(), which returns false before any of them are touched.
+#if defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+static const int TOUCH_CS_PIN = -1;
+static const int TOUCH_IRQ_PIN = -1;
+#else
 static const int TOUCH_CS_PIN = 33;
 static const int TOUCH_IRQ_PIN = 36;
+#endif
 #if defined(AQUARIUM_BOARD_ST7796U35)
 static const int TOUCH_CLK_PIN = 14;
 static const int TOUCH_MISO_PIN = 12;
 static const int TOUCH_MOSI_PIN = 13;
+#elif defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+static const int TOUCH_CLK_PIN = -1;
+static const int TOUCH_MISO_PIN = -1;
+static const int TOUCH_MOSI_PIN = -1;
 #else
 static const int TOUCH_CLK_PIN = 25;
 static const int TOUCH_MISO_PIN = 39;
@@ -71,10 +97,24 @@ static const int TOUCH_RAW_MIN_Y = 220;
 static const int TOUCH_RAW_MAX_Y = 3850;
 
 // ------------------------------ Button / SD Capture --------------------------
+#if defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+// GPIO0 is the badge's real I2C SCL (AW9523 backlight / WS2812 driver), so the
+// stock BOOT_BUTTON_PIN=0 would collide with it; land on a free GPIO instead.
+static const int BOOT_BUTTON_PIN = 21;
+#else
 static const int BOOT_BUTTON_PIN = 0;
+#endif
 static const unsigned long BOOT_BUTTON_DEBOUNCE_MS = 180UL;
 #if defined(AQUARIUM_BOARD_ST7796U35)
 static const int TFT_BACKLIGHT_PIN = 27;
+static const int AMBIENT_LED_RED_PIN = -1;
+static const int AMBIENT_LED_GREEN_PIN = -1;
+static const int AMBIENT_LED_BLUE_PIN = -1;
+#elif defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+// Backlight is behind the AW9523 I2C GPIO expander, not a plain GPIO -- see
+// initCyberSaiyanBacklight(). No discrete ambient RGB LEDs on this badge (the
+// 7 front WS2812s are a different, unsupported protocol).
+static const int TFT_BACKLIGHT_PIN = -1;
 static const int AMBIENT_LED_RED_PIN = -1;
 static const int AMBIENT_LED_GREEN_PIN = -1;
 static const int AMBIENT_LED_BLUE_PIN = -1;
@@ -89,6 +129,20 @@ static const uint32_t BACKLIGHT_PWM_FREQ = 12000;
 static const uint8_t BACKLIGHT_PWM_BITS = 8;
 
 // Common display and microSD wiring. If your board revision differs, adjust these only.
+#if defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+static const int AQUARIUM_TFT_CS_PIN = 10;
+static const int AQUARIUM_TFT_SCK_PIN = 6;
+static const int AQUARIUM_TFT_MISO_PIN = 2;
+static const int AQUARIUM_TFT_MOSI_PIN = 7;
+// No SD card slot on this badge. Point SD_* at the display's own SPI bus pins
+// (unused CS on a free GPIO) so the unconditional pinMode()/digitalWrite() in
+// setup() has no real pin to collide with; SD.begin() will simply never find
+// a card, which the rest of the capture code already handles gracefully.
+static const int SD_CS_PIN = 20;
+static const int SD_SCK_PIN = 6;
+static const int SD_MISO_PIN = 2;
+static const int SD_MOSI_PIN = 7;
+#else
 static const int AQUARIUM_TFT_CS_PIN = 15;
 static const int AQUARIUM_TFT_SCK_PIN = 14;
 static const int AQUARIUM_TFT_MISO_PIN = 12;
@@ -97,6 +151,7 @@ static const int SD_CS_PIN = 5;
 static const int SD_SCK_PIN = 18;
 static const int SD_MISO_PIN = 19;
 static const int SD_MOSI_PIN = 23;
+#endif
 static const uint32_t SD_SPI_FREQUENCY = 1000000UL;
 #if defined(SPI_FREQUENCY)
 static const uint32_t TFT_SPI_FREQUENCY = SPI_FREQUENCY;
@@ -1549,7 +1604,7 @@ int displayRotation() {
 }
 
 void applyTouchOrientation() {
-#if !defined(AQUARIUM_BOARD_ST7796U35)
+#if !defined(AQUARIUM_BOARD_ST7796U35) && !defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
   if (touchReady) touch.setRotation(displayRotation());
 #endif
 }
@@ -2115,6 +2170,8 @@ bool initTouchHardware() {
   digitalWrite(TOUCH_CS_PIN, HIGH);
   pinMode(TOUCH_IRQ_PIN, INPUT);
   return true;
+#elif defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+  return false;  // No touch controller wired to the MCU on this badge.
 #else
   touchSPI.begin(TOUCH_CLK_PIN, TOUCH_MISO_PIN, TOUCH_MOSI_PIN, TOUCH_CS_PIN);
   return touch.begin(touchSPI);
@@ -2859,8 +2916,38 @@ bool attachLightingPin(int pin, bool activeLow) {
   return ledcAttach(pin, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_BITS);
 }
 
+#if defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+// Badge backlight is 4 LED-driver pins on an AW9523B I2C GPIO expander (not a
+// plain GPIO), stock-firmware address 0x5A on the badge's I2C bus. There is no
+// brightness UI wired up for this board profile yet -- just latch it on at
+// full brightness so the ST7789 panel is actually visible.
+static const int CYBERSAIYAN_I2C_SDA_PIN = 1;
+static const int CYBERSAIYAN_I2C_SCL_PIN = 0;
+static const uint8_t CYBERSAIYAN_AW9523_ADDR = 0x5A;
+
+static void cyberSaiyanAw9523Write(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(CYBERSAIYAN_AW9523_ADDR);
+  Wire.write(reg);
+  Wire.write(value);
+  Wire.endTransmission();
+}
+
+void initCyberSaiyanBacklight() {
+  Wire.begin(CYBERSAIYAN_I2C_SDA_PIN, CYBERSAIYAN_I2C_SCL_PIN);
+  cyberSaiyanAw9523Write(0x11, 0x01);  // P1 port mode: push-pull
+  cyberSaiyanAw9523Write(0x12, 0x80);  // P1_7 as LED-driver output
+  cyberSaiyanAw9523Write(0x13, 0x80);  // P0_7 as LED-driver output
+  for (uint8_t reg = 0x20; reg <= 0x23; reg++) cyberSaiyanAw9523Write(reg, 0xFF);
+}
+#endif
+
 void initLightingHardware() {
+#if defined(AQUARIUM_BOARD_CYBERSAIYAN_C3)
+  initCyberSaiyanBacklight();
+  lcdBacklightPwmReady = false;
+#else
   lcdBacklightPwmReady = attachLightingPin(TFT_BACKLIGHT_PIN, false);
+#endif
   ambientRedPwmReady = attachLightingPin(AMBIENT_LED_RED_PIN, AMBIENT_LED_ACTIVE_LOW);
   ambientGreenPwmReady = attachLightingPin(AMBIENT_LED_GREEN_PIN, AMBIENT_LED_ACTIVE_LOW);
   ambientBluePwmReady = attachLightingPin(AMBIENT_LED_BLUE_PIN, AMBIENT_LED_ACTIVE_LOW);
@@ -7485,8 +7572,10 @@ void setup() {
     setWifiStatus(wifiSsid[0] ? "Starting..." : "Ready to scan");
   }
 
-  pinMode(TFT_BACKLIGHT_PIN, OUTPUT);
-  digitalWrite(TFT_BACKLIGHT_PIN, HIGH);
+  if (TFT_BACKLIGHT_PIN >= 0) {
+    pinMode(TFT_BACKLIGHT_PIN, OUTPUT);
+    digitalWrite(TFT_BACKLIGHT_PIN, HIGH);
+  }
   tft.init();
   applyDisplayOrientation(false);
   tft.fillScreen(BG_COLOR);

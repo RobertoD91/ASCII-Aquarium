@@ -90,6 +90,14 @@ Also, we have preliminary support for the much nicer [JC3248w535 board](https://
 
 **[Use the web flasher to flash either of these new firmwares to your board!](https://power-pill.github.io/ASCII-Aquarium/)**
 
+There is also an experimental hardware port for the Cyber Saiyan community's
+ESP32-C3 conference badges — [WHY2025/EMF2026](https://github.com/CyberSaiyanIT/why2025-badge)
+and [RHC22](https://github.com/CyberSaiyanIT/rhc22-badge) — which share the same
+ESP32-C3 + ST7789 240x320 panel wiring. Build with the `AQUARIUM_BOARD_CYBERSAIYAN_C3`
+define and `User_Setup_CyberSaiyanC3.h`; see CLAUDE.md for details. These badges have
+no touchscreen or SD card wired up, so touch input and BMP capture are inactive on
+this profile — only the animated tank itself is ported.
+
 ## 3D Printed 2.8" CYD Cases ><((((>`
 - [Basic Snap-fit case by PowerPill.Prints](https://makerworld.com/en/models/2835243)
 - [CYD Desk Buddy by annaglyph](https://makerworld.com/en/models/2787810) 
